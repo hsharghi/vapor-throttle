@@ -110,7 +110,7 @@ extension ThrottleRequestsMiddleware {
     {
         getHeaders(key: key).forEach { (headerData) in
             let (key, value) = headerData
-            request.http.headers.add(name: key, value: "\(value)")
+            request.http.headers.add(name: key, value: value)
         }
         
         return request
