@@ -25,13 +25,12 @@ final class ThrottleRequestsMiddleware: Middleware {
     
     func respond(to request: Request, chainingTo next: Responder) throws -> EventLoopFuture<Response> {
         
-        request.co
-        limiter.db = request.connectionPool(to: .mysql)
+        limiter.db = try request.connectionPool(to: .mysql)
         
         let responder = BasicResponder { req in
             let key = try self.resolveRequestSignature(request: request)
-            if limiter.tooManyAttempts(key: key) {
-                throw Abort(.forbidden, headers: HTTPHeaders(getHeaders()), reason: <#T##String?#>, identifier: <#T##String?#>, possibleCauses: <#T##[String]#>, suggestedFixes: <#T##[String]#>, documentationLinks: <#T##[String]#>, stackOverflowQuestions: <#T##[String]#>, gitHubIssues: <#T##[String]#>)
+            if self.limiter.tooManyAttempts(key: key, max: 10) {
+                throw Abort(.forbidden, headers: HTTPHeaders(self.getHeaders(key: key).toTuples()), reason: "Too many requests")
             }
             
             return request.withPooledConnection(to: .mysql) { (conn: MySQLDatabase.Connection) in
@@ -107,9 +106,9 @@ extension ThrottleRequestsMiddleware {
     
 
     /// Add the limit header information to the given response.
-    private func addHeaders(request: Request) -> Request
+    private func addHeaders(request: Request, key: String) -> Request
     {
-        getHeaders(maxAttempts: limiter.maxAttempts, remainingAttempts: 10).forEach { (headerData) in
+        getHeaders(key: key).forEach { (headerData) in
             let (key, value) = headerData
             request.http.headers.add(name: key, value: "\(value)")
         }
@@ -122,9 +121,10 @@ extension ThrottleRequestsMiddleware {
     private func getHeaders(key: String) -> [String: String] {
         var headers = [
             "X-RateLimit-Limit" : "\(limiter.maxAttempts)",
-            "X-RateLimit-Remaining" : "\(limiter.retriesLeft(key: key))"
+            "X-RateLimit-Remaining" : "\(limiter.retriesLeft(key: key, maxAttempts: limiter.maxAttempts))"
         ]
 
+        let retryAfter:Int? = nil
         if let retryAfter = retryAfter {
             headers["Retry-After"] = "\(retryAfter)"
             headers["X-RateLimit-Reset"] = "\(Int(availableAt(delay: TimeInterval(exactly: retryAfter) ?? 0).timeIntervalSince1970))"
@@ -144,6 +144,16 @@ extension ThrottleRequestsMiddleware {
 extension Router {
     func throttled(numRequests: Int = 10, per interval: RateLimiter.Interval = .second) -> Router {
         return self.grouped(ThrottleRequestsMiddleware(numRequests: numRequests, per: interval))
+    }
+}
+
+extension Dictionary where Key == String, Value == String  {
+    func toTuples() -> [(String, String)] {
+        var tuples: [(String, String)] = []
+        for (key, value) in self {
+            tuples.append((key, value))
+        }
+        return tuples
     }
 }
 

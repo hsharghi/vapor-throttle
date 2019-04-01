@@ -19,7 +19,7 @@ class RateLimiter {
         case day
     }
     
-    public var db: MySQLDatabase
+    public var db: DatabaseConnectionPool<ConfiguredDatabase<MySQLDatabase>>?
 
     private let limit: Int
     private let per: Interval
